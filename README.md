@@ -83,6 +83,9 @@ Standard converters often fail by corrupting Cyrillic encodings, losing two-colu
 │ Google Gemini Vision │ [ТОП] 15 RPM Free, найвища якість для України       │
 │ (gemini-3.6-flash)   │ Конфіг: GEMINI_API_KEY=AIzaSy...                    │
 ├──────────────────────┼─────────────────────────────────────────────────────┤
+│ Mistral OCR API      │ Спеціалізований Document OCR (mistral-ocr-latest)   │
+│ (docs.mistral.ai)    │ Конфіг: MISTRAL_API_KEY=... ($4/1000 сторінок)      │
+├──────────────────────┼─────────────────────────────────────────────────────┤
 │ OpenAI Vision        │ Еталонний Markdown та вилучення складних таблиць    │
 │ (gpt-4o / mini)      │ Конфіг: OPENAI_API_KEY=sk-...                       │
 ├──────────────────────┼─────────────────────────────────────────────────────┤
@@ -117,6 +120,9 @@ Create a `.env` file in the project root directory (or configure keys interactiv
 # 🌟 Google Gemini (Recommended: Free tier available at https://aistudio.google.com/app/apikey)
 GEMINI_API_KEY=AIzaSy...
 
+# 🚀 Mistral AI Document OCR (https://console.mistral.ai/)
+MISTRAL_API_KEY=...
+
 # OpenAI (GPT-4o / GPT-4o-mini)
 OPENAI_API_KEY=sk-...
 
@@ -126,6 +132,9 @@ ANTHROPIC_API_KEY=sk-ant-...
 # DeepSeek / Custom OpenAI Endpoint (e.g. Local vLLM or Ollama)
 DEEPSEEK_API_KEY=sk-...
 OPENAI_BASE_URL=https://api.deepseek.com
+
+# ⭐ Preferred Default Engine (gemini | mistral | openai | claude | deepseek | tesseract | auto)
+DEFAULT_OCR_ENGINE=gemini
 ```
 
 ### 2. Local OCR Engines (Optional) / Локальні рушії
@@ -160,7 +169,7 @@ For 100% offline OCR without internet connectivity:
  [1] Розумна авто-конвертація (Цифровий -> Текст, Скан -> AI OCR)
  [2] Пакетна авто-конвертація всіх .pdf з папки "input"
  [3] Швидка пряма конвертація цифрових PDF (без OCR)
- [4] Примусове OCR розпізнавання (Gemini / OpenAI / Claude / Tesseract)
+ [4] Примусове OCR розпізнавання (Gemini / Mistral / OpenAI / Claude)
  [5] Перевірити статус рушіїв OCR та налаштувати API-ключі
  [6] Вказати власні папки (Вхідна тека -> Вихідна тека)
  [7] Відкрити папку результатів (Output)
@@ -195,6 +204,9 @@ py pdf_ocr_to_md.py --list-engines
 
 # Google Gemini Vision
 py pdf_ocr_to_md.py "input/scan.pdf" --engine gemini --output Output/
+
+# Mistral AI Document OCR
+py pdf_ocr_to_md.py "input/scan.pdf" --engine mistral --output Output/
 
 # OpenAI GPT-4o Vision
 py pdf_ocr_to_md.py "input/scan.pdf" --engine openai --output Output/

@@ -35,7 +35,7 @@ echo.
 echo  [1] Розумна авто-конвертація ^(Цифровий -^> Текст, Скан -^> AI OCR^)
 echo  [2] Пакетна авто-конвертація всіх .pdf з папки "input"
 echo  [3] Швидка пряма конвертація цифрових PDF ^(без OCR^)
-echo  [4] Примусове OCR розпізнавання ^(Gemini / OpenAI / Claude / Tesseract^)
+echo  [4] Примусове OCR розпізнавання ^(Gemini / Mistral / OpenAI / Claude^)
 echo  [5] Перевірити статус рушіїв OCR та налаштувати API-ключі
 echo  [6] Вказати власні папки ^(Вхідна тека -^> Вихідна тека^)
 echo  [7] Відкрити папку результатів ^(Output^)
@@ -154,26 +154,28 @@ echo ================================================================
 echo               ПРИМУСОВИЙ ВИБІР РУШІЯ OCR
 echo ================================================================
 echo.
-echo  [1] Google Gemini Vision ^(Рекомендовано: найшвидший та найточніший^)
-echo  [2] OpenAI GPT-4o Vision
-echo  [3] Anthropic Claude 3.5 Sonnet Vision
-echo  [4] DeepSeek Vision
-echo  [5] Tesseract OCR ^(Локальний офлайн^)
-echo  [6] Автоматичний вибір рушія
+echo  [1] Google Gemini Vision ^(Рекомендовано: найшвидший та безкоштовний^)
+echo  [2] Mistral AI Document OCR ^(mistral-ocr-latest / спеціалізований^)
+echo  [3] OpenAI GPT-4o Vision
+echo  [4] Anthropic Claude 3.5 Sonnet Vision
+echo  [5] DeepSeek Vision
+echo  [6] Tesseract OCR ^(Локальний офлайн^)
+echo  [7] Автоматичний вибір рушія
 echo  [0] Назад у головне меню
 echo.
 echo ================================================================
 set "OCR_CHOICE="
-set /p "OCR_CHOICE=Оберіть рушій OCR [0-6]: "
+set /p "OCR_CHOICE=Оберіть рушій OCR [0-7]: "
 
 if "!OCR_CHOICE!"=="0" goto MENU
 set "ENGINE_NAME=auto"
 if "!OCR_CHOICE!"=="1" set "ENGINE_NAME=gemini"
-if "!OCR_CHOICE!"=="2" set "ENGINE_NAME=openai"
-if "!OCR_CHOICE!"=="3" set "ENGINE_NAME=claude"
-if "!OCR_CHOICE!"=="4" set "ENGINE_NAME=deepseek"
-if "!OCR_CHOICE!"=="5" set "ENGINE_NAME=tesseract"
-if "!OCR_CHOICE!"=="6" set "ENGINE_NAME=auto"
+if "!OCR_CHOICE!"=="2" set "ENGINE_NAME=mistral"
+if "!OCR_CHOICE!"=="3" set "ENGINE_NAME=openai"
+if "!OCR_CHOICE!"=="4" set "ENGINE_NAME=claude"
+if "!OCR_CHOICE!"=="5" set "ENGINE_NAME=deepseek"
+if "!OCR_CHOICE!"=="6" set "ENGINE_NAME=tesseract"
+if "!OCR_CHOICE!"=="7" set "ENGINE_NAME=auto"
 
 echo.
 set "OCR_IN_PATH="
@@ -191,7 +193,7 @@ pause
 goto MENU
 
 
-REM ── 5. Налаштування API-ключів ──
+REM ── 5. Налаштування API-ключів та рушія за замовчуванням ──
 :CONFIGURE_KEYS
 cls
 echo ================================================================
@@ -200,61 +202,116 @@ echo ================================================================
 echo.
 "!PYTHON_CMD!" "%~dp0pdf_ocr_to_md.py" --list-engines
 echo ----------------------------------------------------------------
-echo  Для налаштування API-ключів ви можете ввести їх тут або створити файл .env
+echo  Налаштування API-ключів та вибір рушія за замовчуванням:
 echo.
 echo  [1] Встановити GEMINI_API_KEY
-echo  [2] Встановити OPENAI_API_KEY
-echo  [3] Встановити ANTHROPIC_API_KEY
-echo  [4] Встановити DEEPSEEK_API_KEY
+echo  [2] Встановити MISTRAL_API_KEY
+echo  [3] Встановити OPENAI_API_KEY
+echo  [4] Встановити ANTHROPIC_API_KEY
+echo  [5] Встановити DEEPSEEK_API_KEY
+echo  [6] [*] Обрати рушій OCR за замовчуванням ^(Default AI Engine^)
 echo  [0] Повернутися назад
 echo ----------------------------------------------------------------
 set "KEY_CHOICE="
-set /p "KEY_CHOICE=Оберіть варіант [0-4]: "
+set /p "KEY_CHOICE=Оберіть варіант [0-6]: "
 
 if "!KEY_CHOICE!"=="0" goto MENU
 if "!KEY_CHOICE!"=="1" goto SET_KEY_1
 if "!KEY_CHOICE!"=="2" goto SET_KEY_2
 if "!KEY_CHOICE!"=="3" goto SET_KEY_3
 if "!KEY_CHOICE!"=="4" goto SET_KEY_4
+if "!KEY_CHOICE!"=="5" goto SET_KEY_5
+if "!KEY_CHOICE!"=="6" goto SELECT_DEFAULT_ENGINE
 goto CONFIGURE_KEYS
 
 :SET_KEY_1
 set /p "G_KEY=Введіть ваш Gemini API Key: "
 if defined G_KEY (
-    echo GEMINI_API_KEY=!G_KEY!>> "%~dp0.env"
     set "GEMINI_API_KEY=!G_KEY!"
+    "!PYTHON_CMD!" -c "from pathlib import Path; f=Path('%~dp0.env'); lines=[l for l in (f.read_text(encoding='utf-8', errors='ignore').splitlines() if f.exists() else []) if not l.startswith('GEMINI_API_KEY=')]; lines.append('GEMINI_API_KEY=!G_KEY!'); f.write_text('\n'.join(lines).strip()+'\n', encoding='utf-8')"
     echo [OK] Збережено у .env
 )
 pause
 goto CONFIGURE_KEYS
 
 :SET_KEY_2
-set /p "O_KEY=Введіть ваш OpenAI API Key: "
-if defined O_KEY (
-    echo OPENAI_API_KEY=!O_KEY!>> "%~dp0.env"
-    set "OPENAI_API_KEY=!O_KEY!"
+set /p "M_KEY=Введіть ваш Mistral API Key: "
+if defined M_KEY (
+    set "MISTRAL_API_KEY=!M_KEY!"
+    "!PYTHON_CMD!" -c "from pathlib import Path; f=Path('%~dp0.env'); lines=[l for l in (f.read_text(encoding='utf-8', errors='ignore').splitlines() if f.exists() else []) if not l.startswith('MISTRAL_API_KEY=')]; lines.append('MISTRAL_API_KEY=!M_KEY!'); f.write_text('\n'.join(lines).strip()+'\n', encoding='utf-8')"
     echo [OK] Збережено у .env
 )
 pause
 goto CONFIGURE_KEYS
 
 :SET_KEY_3
-set /p "A_KEY=Введіть ваш Anthropic API Key: "
-if defined A_KEY (
-    echo ANTHROPIC_API_KEY=!A_KEY!>> "%~dp0.env"
-    set "ANTHROPIC_API_KEY=!A_KEY!"
+set /p "O_KEY=Введіть ваш OpenAI API Key: "
+if defined O_KEY (
+    set "OPENAI_API_KEY=!O_KEY!"
+    "!PYTHON_CMD!" -c "from pathlib import Path; f=Path('%~dp0.env'); lines=[l for l in (f.read_text(encoding='utf-8', errors='ignore').splitlines() if f.exists() else []) if not l.startswith('OPENAI_API_KEY=')]; lines.append('OPENAI_API_KEY=!O_KEY!'); f.write_text('\n'.join(lines).strip()+'\n', encoding='utf-8')"
     echo [OK] Збережено у .env
 )
 pause
 goto CONFIGURE_KEYS
 
 :SET_KEY_4
-set /p "D_KEY=Введіть ваш DeepSeek API Key: "
-if defined D_KEY (
-    echo DEEPSEEK_API_KEY=!D_KEY!>> "%~dp0.env"
-    set "DEEPSEEK_API_KEY=!D_KEY!"
+set /p "A_KEY=Введіть ваш Anthropic API Key: "
+if defined A_KEY (
+    set "ANTHROPIC_API_KEY=!A_KEY!"
+    "!PYTHON_CMD!" -c "from pathlib import Path; f=Path('%~dp0.env'); lines=[l for l in (f.read_text(encoding='utf-8', errors='ignore').splitlines() if f.exists() else []) if not l.startswith('ANTHROPIC_API_KEY=')]; lines.append('ANTHROPIC_API_KEY=!A_KEY!'); f.write_text('\n'.join(lines).strip()+'\n', encoding='utf-8')"
     echo [OK] Збережено у .env
 )
+pause
+goto CONFIGURE_KEYS
+
+:SET_KEY_5
+set /p "D_KEY=Введіть ваш DeepSeek API Key: "
+if defined D_KEY (
+    set "DEEPSEEK_API_KEY=!D_KEY!"
+    "!PYTHON_CMD!" -c "from pathlib import Path; f=Path('%~dp0.env'); lines=[l for l in (f.read_text(encoding='utf-8', errors='ignore').splitlines() if f.exists() else []) if not l.startswith('DEEPSEEK_API_KEY=')]; lines.append('DEEPSEEK_API_KEY=!D_KEY!'); f.write_text('\n'.join(lines).strip()+'\n', encoding='utf-8')"
+    echo [OK] Збережено у .env
+)
+pause
+goto CONFIGURE_KEYS
+
+:SELECT_DEFAULT_ENGINE
+cls
+echo ================================================================
+echo         ВИБІР РУШІЯ OCR ЗА ЗАМОВЧУВАННЯМ (DEFAULT ENGINE)
+echo ================================================================
+echo.
+echo  Поточний вибір буде діяти автоматично для всіх запусків
+echo  (розумний режим, Drag-and-Drop на файл, пакетна обробка).
+echo.
+echo  [1] Google Gemini Vision ^(Безкоштовно 15 RPM, найшвидший^)
+echo  [2] Mistral AI Document OCR ^(mistral-ocr-latest / спеціалізований^)
+echo  [3] OpenAI GPT-4o Vision
+echo  [4] Anthropic Claude 3.5 Sonnet Vision
+echo  [5] DeepSeek Vision
+echo  [6] Tesseract OCR ^(Локальний офлайн^)
+echo  [7] Авто-вибір за пріоритетом якості ^(Auto^)
+echo  [0] Скасувати
+echo ----------------------------------------------------------------
+set "DEF_CHOICE="
+set /p "DEF_CHOICE=Оберіть бажаний рушій [0-7]: "
+
+if "!DEF_CHOICE!"=="0" goto CONFIGURE_KEYS
+set "SELECTED_DEF="
+if "!DEF_CHOICE!"=="1" set "SELECTED_DEF=gemini"
+if "!DEF_CHOICE!"=="2" set "SELECTED_DEF=mistral"
+if "!DEF_CHOICE!"=="3" set "SELECTED_DEF=openai"
+if "!DEF_CHOICE!"=="4" set "SELECTED_DEF=claude"
+if "!DEF_CHOICE!"=="5" set "SELECTED_DEF=deepseek"
+if "!DEF_CHOICE!"=="6" set "SELECTED_DEF=tesseract"
+if "!DEF_CHOICE!"=="7" set "SELECTED_DEF=auto"
+
+if defined SELECTED_DEF (
+    set "DEFAULT_OCR_ENGINE=!SELECTED_DEF!"
+    "!PYTHON_CMD!" -c "from pathlib import Path; f=Path('%~dp0.env'); lines=[l for l in (f.read_text(encoding='utf-8', errors='ignore').splitlines() if f.exists() else []) if not l.startswith('DEFAULT_OCR_ENGINE=')]; lines.append('DEFAULT_OCR_ENGINE=!SELECTED_DEF!'); f.write_text('\n'.join(lines).strip()+'\n', encoding='utf-8')"
+    echo.
+    echo [УСПІХ] Рушій за замовчуванням збережено: [!SELECTED_DEF!]
+)
+echo.
 pause
 goto CONFIGURE_KEYS
 

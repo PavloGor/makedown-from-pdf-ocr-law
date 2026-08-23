@@ -127,36 +127,42 @@ def get_available_engines() -> dict:
         engines['gemini'] = {'available': True, 'desc': 'Google Gemini Vision (Найшвидший & Найвища якість)'}
     else:
         engines['gemini'] = {'available': False, 'desc': 'Google Gemini Vision (Потрібен GEMINI_API_KEY у .env)'}
-        
-    # 2. OpenAI
+    # 2. Mistral OCR
+    mistral_key = os.getenv('MISTRAL_API_KEY')
+    if mistral_key:
+        engines['mistral'] = {'available': True, 'desc': 'Mistral AI Document OCR (mistral-ocr-latest)'}
+    else:
+        engines['mistral'] = {'available': False, 'desc': 'Mistral OCR (Потрібен MISTRAL_API_KEY у .env)'}
+
+    # 3. OpenAI
     openai_key = os.getenv('OPENAI_API_KEY')
     if openai_key:
         engines['openai'] = {'available': True, 'desc': 'OpenAI GPT-4o Vision'}
     else:
         engines['openai'] = {'available': False, 'desc': 'OpenAI GPT-4o Vision (Потрібен OPENAI_API_KEY у .env)'}
         
-    # 3. Claude
+    # 4. Claude
     claude_key = os.getenv('ANTHROPIC_API_KEY')
     if claude_key:
         engines['claude'] = {'available': True, 'desc': 'Anthropic Claude 3.5 Sonnet Vision'}
     else:
         engines['claude'] = {'available': False, 'desc': 'Anthropic Claude Vision (Потрібен ANTHROPIC_API_KEY у .env)'}
         
-    # 4. DeepSeek / Custom
+    # 5. DeepSeek / Custom
     deepseek_key = os.getenv('DEEPSEEK_API_KEY')
     if deepseek_key:
         engines['deepseek'] = {'available': True, 'desc': 'DeepSeek Vision / OpenAI-compatible'}
     else:
         engines['deepseek'] = {'available': False, 'desc': 'DeepSeek Vision (Потрібен DEEPSEEK_API_KEY у .env)'}
         
-    # 5. PaddleOCR
+    # 6. PaddleOCR
     try:
         import paddleocr
         engines['paddleocr'] = {'available': True, 'desc': 'PaddleOCR (Локальний нейромережевий рушій)'}
     except ImportError:
         engines['paddleocr'] = {'available': False, 'desc': 'PaddleOCR (Встановіть: pip install paddlepaddle paddleocr)'}
         
-    # 6. Tesseract
+    # 7. Tesseract
     tess_bin = _get_tesseract_cmd()
     if tess_bin:
         try:
@@ -171,8 +177,16 @@ def get_available_engines() -> dict:
     return engines
 
 
+def get_default_configured_engine() -> tuple[str, bool]:
+    """Повертає (engine_name, is_explicitly_configured)."""
+    explicit = os.getenv('DEFAULT_OCR_ENGINE') or os.getenv('OCR_DEFAULT_ENGINE') or os.getenv('OCR_ENGINE')
+    if explicit and explicit.strip().lower() != 'auto':
+        return explicit.strip().lower(), True
+    return 'auto', False
+
+
 def select_best_engine(preferred: str = 'auto') -> str:
-    """Обирає найкращий доступний рушій розпізнавання."""
+    """Обирає найкращий доступний рушій розпізнавання з урахуванням DEFAULT_OCR_ENGINE."""
     avail = get_available_engines()
     if preferred != 'auto' and preferred in avail:
         if avail[preferred]['available']:
@@ -180,8 +194,16 @@ def select_best_engine(preferred: str = 'auto') -> str:
         else:
             print(f"  [!] Рушій '{preferred}' недоступний ({avail[preferred]['desc']}). Шукаю альтернативу...")
             
-    # Пріоритет авто-вибору
-    for candidate in ['gemini', 'openai', 'claude', 'deepseek', 'paddleocr', 'tesseract']:
+    # Якщо користувач явно налаштував DEFAULT_OCR_ENGINE у .env
+    default_eng, is_explicit = get_default_configured_engine()
+    if is_explicit and default_eng in avail:
+        if avail[default_eng]['available']:
+            return default_eng
+        else:
+            print(f"  [!] Налаштований за замовчуванням рушій '{default_eng}' недоступний ({avail[default_eng]['desc']}). Перемикаюсь на авто-вибір...")
+            
+    # Пріоритет авто-вибору за якістю
+    for candidate in ['gemini', 'mistral', 'openai', 'claude', 'deepseek', 'paddleocr', 'tesseract']:
         if avail.get(candidate, {}).get('available'):
             return candidate
             
@@ -260,6 +282,69 @@ def _ocr_page_gemini(image_bytes: bytes, model: str = None) -> tuple[str, dict]:
         return resp.text.strip(), usage
     except Exception:
         raise last_ex
+
+
+def _ocr_page_mistral(image_bytes: bytes, model: str = 'mistral-ocr-latest') -> tuple[str, dict]:
+    """Розпізнає сторінку через спеціалізований Mistral Document OCR API (mistral-ocr-latest)."""
+    api_key = os.getenv('MISTRAL_API_KEY')
+    if not api_key:
+        raise ValueError("MISTRAL_API_KEY не знайдено в оточенні або .env")
+        
+    target_model = model or os.getenv('MISTRAL_MODEL', 'mistral-ocr-latest')
+    b64_img = base64.b64encode(image_bytes).decode('utf-8')
+    data_url = f"data:image/png;base64,{b64_img}"
+    
+    # 1. Спроба через офіційний SDK mistralai (якщо встановлено)
+    try:
+        from mistralai import Mistral
+        client = Mistral(api_key=api_key)
+        response = client.ocr.process(
+            model=target_model,
+            document={
+                "type": "document_url",
+                "document_url": data_url
+            }
+        )
+        md_pages = []
+        if hasattr(response, 'pages') and response.pages:
+            for p in response.pages:
+                if hasattr(p, 'markdown') and p.markdown:
+                    md_pages.append(p.markdown.strip())
+        text = "\n\n".join(md_pages) if md_pages else ""
+        usage = {'engine': 'mistral', 'model': target_model, 'in_tokens': 0, 'out_tokens': 0, 'total_tokens': 0, 'pages': len(md_pages) or 1}
+        return text, usage
+    except ImportError:
+        pass
+    except Exception as e:
+        if "document_url" not in str(e).lower():
+            # Якщо інша помилка (наприклад, невірний ключ або квота)
+            raise e
+
+    # 2. Прямий HTTP виклик REST API Mistral (не потребує встановлення сторонніх пакетів)
+    import json
+    import urllib.request
+    
+    url = "https://api.mistral.ai/v1/ocr"
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json"
+    }
+    payload = {
+        "model": target_model,
+        "document": {
+            "type": "document_url",
+            "document_url": data_url
+        }
+    }
+    req = urllib.request.Request(url, data=json.dumps(payload).encode('utf-8'), headers=headers)
+    with urllib.request.urlopen(req, timeout=90) as resp:
+        res_data = json.loads(resp.read().decode('utf-8'))
+        
+    pages = res_data.get('pages', [])
+    md_pages = [p.get('markdown', '').strip() for p in pages if p.get('markdown')]
+    text = "\n\n".join(md_pages)
+    usage = {'engine': 'mistral', 'model': target_model, 'in_tokens': 0, 'out_tokens': 0, 'total_tokens': 0, 'pages': len(pages) or 1}
+    return text, usage
 
 
 def _ocr_page_openai(image_bytes: bytes, model: str = 'gpt-4o') -> tuple[str, dict]:
@@ -435,6 +520,8 @@ def ocr_single_image(image_bytes: bytes, engine: str = 'gemini', retries: int = 
         try:
             if engine == 'gemini':
                 return _ocr_page_gemini(image_bytes)
+            elif engine == 'mistral':
+                return _ocr_page_mistral(image_bytes)
             elif engine == 'openai':
                 return _ocr_page_openai(image_bytes)
             elif engine == 'claude':
@@ -454,7 +541,7 @@ def ocr_single_image(image_bytes: bytes, engine: str = 'gemini', retries: int = 
     raise RuntimeError(f"Помилка OCR ({engine}) після {retries} спроб: {last_err}")
 
 
-def print_usage_cost_summary(all_usages: list, total_pages: int):
+def print_usage_cost_summary(all_usages: list, total_pages: int, chosen_engine: str = None):
     """Виводить детальну статистику токенів та орієнтовну вартість OCR обробки."""
     if not all_usages:
         return
@@ -463,8 +550,8 @@ def print_usage_cost_summary(all_usages: list, total_pages: int):
     total_out = sum(u.get('out_tokens', 0) for u in all_usages)
     total_tok = sum(u.get('total_tokens', 0) for u in all_usages)
     
-    engine = all_usages[0].get('engine', 'auto')
-    model = all_usages[0].get('model', engine)
+    engine = all_usages[0].get('engine', chosen_engine or 'auto')
+    model = all_usages[0].get('model', chosen_engine or engine)
     
     m = model.lower()
     cost_usd = 0.0
@@ -473,6 +560,10 @@ def print_usage_cost_summary(all_usages: list, total_pages: int):
     if 'gemini' in m or engine == 'gemini':
         cost_usd = (total_in / 1_000_000) * 0.075 + (total_out / 1_000_000) * 0.30
         notes = "Безкоштовно у Google AI Studio (Free Tier)"
+    elif 'mistral' in m or engine == 'mistral':
+        # Mistral OCR: $4.00 per 1,000 pages ($0.004 per page)
+        cost_usd = total_pages * 0.004
+        notes = "$4.00 за 1,000 сторінок ($0.004/стор)"
     elif 'gpt-4o-mini' in m:
         cost_usd = (total_in / 1_000_000) * 0.15 + (total_out / 1_000_000) * 0.60
         notes = "$0.15 / $0.60 за 1M токенів"
@@ -497,15 +588,20 @@ def print_usage_cost_summary(all_usages: list, total_pages: int):
     if notes:
         cost_str += f" [{notes}]"
         
-    print("\n  " + "─" * 70, flush=True)
-    print("  📊 Статистика використання AI API та оцінка вартості:", flush=True)
-    print(f"     • Рушій / Модель:       {model.upper()}", flush=True)
-    print(f"     • Оброблено сторінок:   {total_pages} стор.", flush=True)
-    print(f"     • Вхідні токени (in):   {total_in:,} tokens (зображення + системний промпт)", flush=True)
-    print(f"     • Вихідні токени (out): {total_out:,} tokens (згенерований Markdown)", flush=True)
-    print(f"     • Всього токенів:       {total_tok:,} tokens", flush=True)
-    print(f"     • Орієнтовна вартість:  {cost_str}", flush=True)
-    print("  " + "─" * 70 + "\n", flush=True)
+    print("\n  " + "-" * 70, flush=True)
+    print("  [INFO] Статистика використання AI API та оцінка вартості:", flush=True)
+    print(f"     * Рушій / Модель:       {model.upper()}", flush=True)
+    print(f"     * Оброблено сторінок:   {total_pages} стор.", flush=True)
+    if 'mistral' in m or engine == 'mistral':
+        print("     * Модель тарифікації:   Посторінкова ($4.00 за 1,000 сторінок)", flush=True)
+        if total_tok > 0:
+            print(f"     * Всього токенів:       {total_tok:,} tokens", flush=True)
+    else:
+        print(f"     * Вхідні токени (in):   {total_in:,} tokens (зображення + системний промпт)", flush=True)
+        print(f"     * Вихідні токени (out): {total_out:,} tokens (згенерований Markdown)", flush=True)
+        print(f"     * Всього токенів:       {total_tok:,} tokens", flush=True)
+    print(f"     * Орієнтовна вартість:  {cost_str}", flush=True)
+    print("  " + "-" * 70 + "\n", flush=True)
 
 
 # ──────────────────────────────────────────────────────
@@ -571,18 +667,18 @@ def convert_pdf_ocr(
             
     cached_count = total_pages - len(pages_to_process)
     if cached_count > 0:
-        print(f"  ⚡ Відновлено з кешу: {cached_count}/{total_pages} сторінок")
+        print(f"  [OK] Відновлено з кешу: {cached_count}/{total_pages} сторінок")
         
     # 2. Обробка решти сторінок
     if pages_to_process:
-        print(f"  ⏳ Запуск OCR розпізнавання: {len(pages_to_process)} стор. (Рушій: {chosen_engine.upper()})...", flush=True)
+        print(f"  [->] Запуск OCR розпізнавання: {len(pages_to_process)} стор. (Рушій: {chosen_engine.upper()})...", flush=True)
         
         done_counter = [cached_count]
         
         def _process_page(pno):
             page_num = pno + 1
             t_start = time.time()
-            print(f"  [→] Сторінка {page_num}/{total_pages}: рендеринг та запит до {chosen_engine.upper()}...", flush=True)
+            print(f"  [->] Сторінка {page_num}/{total_pages}: рендеринг та запит до {chosen_engine.upper()}...", flush=True)
             
             page = doc[pno]
             # In-memory рендеринг сторінки у високій якості
@@ -595,7 +691,7 @@ def convert_pdf_ocr(
             elapsed = time.time() - t_start
             done_counter[0] += 1
             tok_info = f"{usage_info.get('total_tokens', 0):,} tok" if usage_info.get('total_tokens') else f"{len(md_text)} симв."
-            print(f"  [✓] Сторінка {page_num}/{total_pages}: успішно розпізнано за {elapsed:.1f}с ({tok_info}) [{done_counter[0]}/{total_pages}]", flush=True)
+            print(f"  [OK] Сторінка {page_num}/{total_pages}: успішно розпізнано за {elapsed:.1f}с ({tok_info}) [{done_counter[0]}/{total_pages}]", flush=True)
             
             if use_cache:
                 cache_file = cache_dir / f"page_{pno+1:04d}.md"
@@ -612,7 +708,16 @@ def convert_pdf_ocr(
                 
     # Друк підсумкової статистики вартості та токенів
     if all_usages:
-        print_usage_cost_summary(all_usages, len(all_usages))
+        print_usage_cost_summary(all_usages, total_pages, chosen_engine=chosen_engine)
+    else:
+        # Всі сторінки завантажено з локального кешу
+        print("\n  " + "-" * 70, flush=True)
+        print("  [INFO] Результат відновлено з локального кешу (0 нових API запитів):", flush=True)
+        print(f"     * Рушій / Модель:       {chosen_engine.upper()}", flush=True)
+        print(f"     * Оброблено сторінок:   {total_pages} стор. (збережено у .ocr_cache)", flush=True)
+        print("     * Використано токенів:  0 tokens (збережено без повторних витрат)", flush=True)
+        print("     * Вартість запиту:      $0.00000 USD (0.00 грн, локальний кеш)", flush=True)
+        print("  " + "-" * 70 + "\n", flush=True)
             
     full_markdown = '\n\n---\n\n'.join(_clean_ocr_markdown(p) for p in pages_results if p)
     full_markdown = re.sub(r'\n{3,}', '\n\n', full_markdown).strip() + '\n'
@@ -621,7 +726,7 @@ def convert_pdf_ocr(
         out_p = Path(output_path)
         out_p.parent.mkdir(parents=True, exist_ok=True)
         out_p.write_text(full_markdown, encoding='utf-8')
-        print(f"  ✓ Збережено: {out_p}")
+        print(f"  [OK] Збережено: {out_p}")
         
     return full_markdown
 
@@ -652,7 +757,7 @@ def main():
     )
     parser.add_argument("inputs", nargs="*", help="Шляхи до PDF-файлів або папок")
     parser.add_argument("--output", "-o", default="Output", help="Вихідна папка для .md файлів (за замовчуванням: Output)")
-    parser.add_argument("--engine", "-e", default="auto", choices=["auto", "gemini", "openai", "claude", "deepseek", "paddleocr", "tesseract"], help="Рушій розпізнавання (за замовчуванням: auto)")
+    parser.add_argument("--engine", "-e", default="auto", choices=["auto", "gemini", "mistral", "openai", "claude", "deepseek", "paddleocr", "tesseract"], help="Рушій розпізнавання (за замовчуванням: auto)")
     parser.add_argument("--dpi", type=int, default=200, help="DPI роздільна здатність рендерингу сторінок (150-300, стандарт: 200)")
     parser.add_argument("--concurrency", "-c", type=int, default=3, help="Кількість паралельних потоків для сторінок (стандарт: 3)")
     parser.add_argument("--no-cache", action="store_true", help="Не використовувати кеш контрольних точок")
@@ -664,9 +769,16 @@ def main():
         print("\n=== ДОСТУПНІ РУШІЇ OCR ТА КОНФІГУРАЦІЯ ===")
         engines = get_available_engines()
         for name, info in engines.items():
-            status = "✓ ДОСТУПНИЙ" if info['available'] else "✗ ВІДСУТНІЙ"
-            print(f"  [{status}] {name.upper():<10} — {info['desc']}")
-        print(f"\nРекомендований рушій за замовчуванням: [{select_best_engine().upper()}]\n")
+            status = "[+] ДОСТУПНИЙ" if info['available'] else "[-] ВІДСУТНІЙ"
+            print(f"  {status} {name.upper():<10} - {info['desc']}")
+            
+        default_eng, is_explicit = get_default_configured_engine()
+        active_engine = select_best_engine('auto')
+        
+        if is_explicit and default_eng != 'auto':
+            print(f"\n[*] Поточний рушій за замовчуванням: [{active_engine.upper()}] (встановлено у .env: DEFAULT_OCR_ENGINE={default_eng})\n")
+        else:
+            print(f"\n[*] Поточний рушій за замовчуванням: [{active_engine.upper()}] (авто-вибір за пріоритетом якості)\n")
         return
         
     raw_files = []

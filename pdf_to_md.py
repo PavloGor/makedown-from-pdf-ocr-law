@@ -359,16 +359,16 @@ def convert_file(input_path: Path, output_dir: Path = None, auto_ocr: bool = Fal
     # 1. Перевірка наявності цифрового тексту
     density = detect_pdf_text_density(input_path)
     if density['is_scanned']:
-        print(f"  ⚠ Виявлено сканований PDF (без цифрового тексту, {density['total_pages']} стор.)")
+        print(f"  [WARN] Виявлено сканований PDF (без цифрового тексту, {density['total_pages']} стор.)")
         if auto_ocr:
-            print(f"  ⚡ Запуск OCR-розпізнавання (рушій: {ocr_engine})...")
+            print(f"  [->] Запуск OCR-розпізнавання (рушій: {ocr_engine})...")
             try:
                 import pdf_ocr_to_md
                 return pdf_ocr_to_md.convert_file(input_path, output_dir=output_dir, engine=ocr_engine)
             except ImportError:
                 print("  [!] Модуль pdf_ocr_to_md.py не знайдено, продовжую пряму конвертацію.")
         else:
-            print("  ℹ Рекомендація: запустіть OCR через pdf_ocr_to_md.py або використовуйте прапорець --auto-ocr")
+            print("  [INFO] Рекомендація: запустіть OCR через pdf_ocr_to_md.py або використовуйте прапорець --auto-ocr")
             
     # 2. Пряма геометрична конвертація
     md_text = convert_pdf_to_md(input_path)
@@ -376,7 +376,15 @@ def convert_file(input_path: Path, output_dir: Path = None, auto_ocr: bool = Fal
     out_dir.mkdir(parents=True, exist_ok=True)
     out_path = out_dir / (input_path.stem + '.md')
     out_path.write_text(md_text, encoding='utf-8')
-    print(f"  ✓ Збережено: {out_path}")
+    print(f"  [OK] Збережено: {out_path}")
+    
+    print("\n  " + "-" * 70, flush=True)
+    print("  [INFO] Пряма векторна конвертація цифрового PDF (без використання AI API):", flush=True)
+    print(f"     * Метод обробки:        Векторний геометричний аналіз (PyMuPDF)", flush=True)
+    print(f"     * Оброблено сторінок:   {density.get('total_pages', 1)} стор.", flush=True)
+    print(f"     * Використано токенів:  0 tokens (локальна пряма конвертація)", flush=True)
+    print(f"     * Вартість конвертації: $0.00000 USD (0.00 грн, Безкоштовно)", flush=True)
+    print("  " + "-" * 70 + "\n", flush=True)
     return out_path
 
 
@@ -388,7 +396,7 @@ def main():
     parser.add_argument("inputs", nargs="*", help="Шляхи до PDF-файлів або папок")
     parser.add_argument("--output", "-o", default="Output", help="Вихідна папка для .md файлів (за замовчуванням: Output)")
     parser.add_argument("--auto-ocr", action="store_true", help="Автоматично запускати OCR для сканованих документів")
-    parser.add_argument("--ocr-engine", default="auto", choices=["auto", "gemini", "openai", "claude", "deepseek", "paddleocr", "tesseract"], help="Рушій OCR при перенаправленні")
+    parser.add_argument("--ocr-engine", default="auto", choices=["auto", "gemini", "mistral", "openai", "claude", "deepseek", "paddleocr", "tesseract"], help="Рушій OCR при перенаправленні")
     parser.add_argument("--check-only", action="store_true", help="Тільки перевірити щільність тексту (скан чи цифровий) без конвертації")
     parser.add_argument("--max-pages", type=int, default=None, help="Обмежити кількість сторінок для обробки")
     
@@ -428,7 +436,7 @@ def main():
                 convert_file(f, output_dir=out_dir, auto_ocr=args.auto_ocr, ocr_engine=args.ocr_engine)
             success += 1
         except Exception as e:
-            print(f"  ✗ Помилка [{f.name}]: {e}", file=sys.stderr)
+            print(f"  [!] Помилка [{f.name}]: {e}", file=sys.stderr)
             errors += 1
             
     print(f"\nГотово: {success} успішно, {errors} помилок.")
